@@ -152,8 +152,6 @@ def sidebar_navigation():
         """, unsafe_allow_html=True)
 
         st.markdown("---")
-
-        # Navigation
        
 
         # Progression
