@@ -25,7 +25,14 @@ st.set_page_config(
 )
 
 inject_css()
-
+st.markdown("""
+    <style>
+        /* Masque le menu de navigation natif de Streamlit */
+        [data-testid="stSidebarNav"] {
+            display: none;
+        }
+    </style>
+""", unsafe_allow_html=True)
 # ─────────────────────────────────────────────────────────────
 # INITIALISATION SESSION
 # ─────────────────────────────────────────────────────────────
