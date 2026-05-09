@@ -154,39 +154,7 @@ def sidebar_navigation():
         st.markdown("---")
 
         # Navigation
-        st.markdown("### 📚 Apprentissage")
-        pages_appr = {
-            "🏠 Tableau de bord":        "dashboard",
-            "📊 Actions & Marchés":      "actions",
-            "💼 Obligations":            "obligations",
-            "🔄 Produits Dérivés":       "derives",
-            "🏦 Fonds d'investissement": "fonds",
-            "💱 Forex & Crypto":         "forex",
-            "🏗️ Marchés Monétaires":    "monetaire",
-        }
-
-        for label, key in pages_appr.items():
-            active = st.session_state.get("page") == key
-            if st.button(label, key=f"nav_{key}",
-                         use_container_width=True,
-                         type="primary" if active else "secondary"):
-                st.session_state.page = key
-                st.rerun()
-
-        st.markdown("---")
-        st.markdown("### 🎓 Exercices & Quiz")
-        pages_quiz = {
-            "📝 Quiz interactifs":    "quiz",
-            "📈 Simulateur marché":   "simulateur",
-            "📖 Glossaire financier": "glossaire",
-        }
-        for label, key in pages_quiz.items():
-            if st.button(label, key=f"nav_{key}",
-                         use_container_width=True):
-                st.session_state.page = key
-                st.rerun()
-
-        st.markdown("---")
+       
 
         # Progression
         progress = user.get("progression", 0)
