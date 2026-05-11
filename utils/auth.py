@@ -119,74 +119,115 @@ def verifier_connexion_demo(identifiant: str, mot_de_passe: str):
 
 def verifier_connexion_cas(identifiant: str, mot_de_passe: str, url_cas: str = None):
     """
-    Authentification via protocole CAS (Central Authentication Service).
-    Utilisé par la majorité des ENT français.
-
-    En production, configurez l'URL CAS de votre université dans les secrets Streamlit :
-    [cas]
-    url = "https://cas.votre-universite.fr"
-    service = "https://votre-app.streamlit.app"
+    Authentification CAS robuste avec validation du ticket côté serveur.
     """
     try:
         cas_url = url_cas or st.secrets.get("cas", {}).get("url", "")
+        service_url = st.secrets.get("cas", {}).get("service", "")
+        
         if not cas_url:
             return False, None, "URL CAS non configurée"
 
-        # Étape 1 : Demande de ticket CAS
-        login_url = f"{cas_url}/login"
         session = requests.Session()
+        session.headers.update({"User-Agent": "FinLearn/1.0"})
 
-        # Récupération du formulaire
-        r = session.get(login_url, timeout=10)
+        # ── Étape 1 : récupération du formulaire ──────────────────────────
+        login_url = f"{cas_url}/login"
+        params = {"service": service_url} if service_url else {}
+        
+        r = session.get(login_url, params=params, timeout=10)
         if r.status_code != 200:
-            return False, None, "Service ENT inaccessible"
+            return False, None, "Service ENT inaccessible (code {r.status_code})"
 
-        # Extraction du token CSRF si présent
-        lt_match = re.search(r'name="lt" value="([^"]+)"', r.text)
-        execution_match = re.search(r'name="execution" value="([^"]+)"', r.text)
+        # ── Étape 2 : extraction des tokens du formulaire ─────────────────
+        lt_match        = re.search(r'name="lt"\s+value="([^"]+)"', r.text)
+        execution_match = re.search(r'name="execution"\s+value="([^"]+)"', r.text)
+
+        if not execution_match:
+            # Certains CAS modernes n'ont pas de champ "lt"
+            return False, None, "Formulaire CAS non reconnu — contactez l'admin."
 
         payload = {
-            "username": identifiant,
-            "password": mot_de_passe,
+            "username":  identifiant,
+            "password":  mot_de_passe,
             "_eventId": "submit",
-            "submit": "LOGIN",
+            "submit":   "LOGIN",
+            "execution": execution_match.group(1),
         }
         if lt_match:
             payload["lt"] = lt_match.group(1)
-        if execution_match:
-            payload["execution"] = execution_match.group(1)
 
-        # Étape 2 : Soumission des credentials
-        r2 = session.post(login_url, data=payload, allow_redirects=True, timeout=10)
+        # ── Étape 3 : soumission + récupération du ticket ─────────────────
+        r2 = session.post(
+            login_url,
+            data=payload,
+            params=params,
+            allow_redirects=False,   # ← important : on intercepte la redirection
+            timeout=10,
+        )
 
-        if "ticket=" in r2.url or "ST-" in r2.text:
-            # Succès — construction du profil depuis CAS
-            user_data = {
-                "prenom": "Étudiant",
-                "nom": identifiant.split("@")[0].replace(".", " ").title() if "@" in identifiant else "ENT",
-                "email": identifiant if "@" in identifiant else f"{identifiant}@ent.univ.fr",
-                "formation": "Via ENT",
-                "annee": "2024-2025",
-                "universite": "Université partenaire",
-                "role": "etudiant",
-                "progression": 0,
-                "modules_completes": [],
-                "score_moyen": 0,
-                "connexion_time": datetime.now().strftime("%d/%m/%Y %H:%M"),
-            }
-            return True, user_data, "Connexion ENT réussie"
+        # CAS redirige vers service_url?ticket=ST-xxxx en cas de succès
+        location = r2.headers.get("Location", "")
+        ticket_match = re.search(r"ticket=(ST-[^&]+)", location)
 
-        if "invalid.credentials" in r2.text.lower() or "bad.credentials" in r2.text.lower():
-            return False, None, "Identifiant ou mot de passe incorrect."
+        if not ticket_match:
+            # Vérification des messages d'erreur connus
+            body = r2.text.lower()
+            if any(k in body for k in ["invalid.credentials", "bad.credentials",
+                                        "authenticationexception", "incorrect"]):
+                return False, None, "Identifiant ou mot de passe incorrect."
+            return False, None, "Connexion ENT échouée. Vérifiez vos identifiants."
 
-        return False, None, "Connexion ENT échouée. Vérifiez vos identifiants."
+        ticket = ticket_match.group(1)
+
+        # ── Étape 4 : validation du ticket côté serveur ───────────────────
+        # C'est l'étape manquante dans le code original !
+        validate_url = f"{cas_url}/serviceValidate"
+        r3 = session.get(validate_url, params={
+            "service": service_url,
+            "ticket":  ticket,
+        }, timeout=10)
+
+        if "<cas:authenticationSuccess>" not in r3.text:
+            return False, None, "Ticket CAS invalide — authentification refusée."
+
+        # ── Étape 5 : extraction des attributs CAS ────────────────────────
+        def _extract(tag, text):
+            m = re.search(rf"<cas:{tag}>(.*?)</cas:{tag}>", text)
+            return m.group(1).strip() if m else ""
+
+        uid    = _extract("user", r3.text) or identifiant
+        prenom = _extract("givenName", r3.text) or _extract("firstname", r3.text)
+        nom    = _extract("sn", r3.text)        or _extract("lastname", r3.text)
+        mail   = _extract("mail", r3.text)      or (identifiant if "@" in identifiant else "")
+
+        # Fallback si l'ENT ne renvoie pas les attributs
+        if not prenom and "@" in identifiant:
+            parts = identifiant.split("@")[0].replace(".", " ").replace("-", " ").split()
+            prenom = parts[0].capitalize() if parts else "Étudiant"
+            nom    = parts[1].capitalize() if len(parts) > 1 else ""
+
+        user_data = {
+            "prenom":            prenom or "Étudiant",
+            "nom":               nom    or uid,
+            "email":             mail   or identifiant,
+            "formation":         _extract("formation", r3.text) or "Via ENT",
+            "annee":             "2024-2025",
+            "universite":        _extract("etablissement", r3.text) or "Université partenaire",
+            "role":              "etudiant",
+            "progression":       0,
+            "modules_completes": [],
+            "score_moyen":       0,
+            "connexion_time":    datetime.now().strftime("%d/%m/%Y %H:%M"),
+        }
+        return True, user_data, "Connexion ENT réussie"
 
     except requests.exceptions.ConnectionError:
-        return False, None, "Impossible de joindre le serveur ENT. Vérifiez votre connexion."
+        return False, None, "Impossible de joindre le serveur ENT."
     except requests.exceptions.Timeout:
         return False, None, "Le serveur ENT ne répond pas. Réessayez dans quelques instants."
     except Exception as e:
-        return False, None, f"Erreur de connexion : {str(e)[:80]}"
+        return False, None, f"Erreur inattendue : {str(e)[:100]}"
 
 
 def verifier_connexion(identifiant: str, mot_de_passe: str) -> tuple:
