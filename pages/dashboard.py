@@ -160,7 +160,7 @@ def render():
         st.markdown("### 🇫🇷 Actions françaises")
         df_fr = get_multiple_quotes({k: v for k, v in ACTIONS_VEDETTES.items() if ".PA" in v or ".MI" in v})
         st.dataframe(
-            df_fr.style.applymap(
+            df_fr.style.map(
                 lambda v: "color:#10b981" if isinstance(v, (int, float)) and v > 0 else "color:#ef4444",
                 subset=["Variation", "Var. (%)"]
             ),
@@ -171,7 +171,7 @@ def render():
         st.markdown("### 🌍 Indices mondiaux")
         df_idx = get_multiple_quotes(INDICES)
         st.dataframe(
-            df_idx.style.applymap(
+            df_idx.style.map(
                 lambda v: "color:#10b981" if isinstance(v, (int, float)) and v > 0 else "color:#ef4444",
                 subset=["Variation", "Var. (%)"]
             ),
