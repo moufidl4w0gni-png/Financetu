@@ -159,7 +159,35 @@ def sidebar_navigation():
         """, unsafe_allow_html=True)
 
         st.markdown("---")
-       
+
+        # ── Menu de navigation ──────────────────────────────
+        st.markdown("### 🧭 Navigation")
+
+        pages = [
+            ("🏠", "Tableau de bord",      "dashboard"),
+            ("📈", "Actions",              "actions"),
+            ("🏛️", "Obligations",          "obligations"),
+            ("⚙️", "Produits dérivés",     "derives"),
+            ("💼", "Fonds d'investissement","fonds"),
+            ("💱", "Forex",                "forex"),
+            ("💰", "Marché monétaire",     "monetaire"),
+            ("🧠", "Quiz",                 "quiz"),
+            ("🔬", "Simulateur",           "simulateur"),
+            ("📖", "Glossaire",            "glossaire"),
+        ]
+
+        for icone, label, cle in pages:
+            actif = st.session_state.get("page") == cle
+            if st.button(
+                f"{icone} {label}",
+                key=f"nav_{cle}",
+                use_container_width=True,
+                type="primary" if actif else "secondary"
+            ):
+                st.session_state.page = cle
+                st.rerun()
+
+        st.markdown("---")
 
         # Progression
         progress = user.get("progression", 0)
@@ -179,7 +207,6 @@ def sidebar_navigation():
         Données en temps réel via Yahoo Finance
         </div>
         """, unsafe_allow_html=True)
-
 
 # ─────────────────────────────────────────────────────────────
 # ROUTEUR DE PAGES
