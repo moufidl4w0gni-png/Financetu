@@ -56,10 +56,14 @@ def render():
     """Point d'entrée de la page professeur."""
     user = get_user_info()
 
-    # ── Vérification du rôle ──────────────────────────────────
+    # ── BLOC DE DIAGNOSTIC TEMPORAIRE ──
+    st.warning("🔍 Mode Diagnostic Activé")
+    st.json({"Contenu de la variable user": user, "Contenu de st.session_state": dict(st.session_state)})
+    # ──────────────────────────────────
+
     # Seuls les professeurs et admins peuvent accéder à cette page
     if user.get("role") not in ("professeur", "admin"):
-        st.error("🔒 Accès réservé aux professeurs et administrateurs.")
+        st.error(f"🔒 Accès refusé. Votre rôle détecté est : '{user.get('role')}'")
         st.stop()
 
     # ── En-tête de la page ────────────────────────────────────
