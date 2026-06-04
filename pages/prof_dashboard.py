@@ -11,13 +11,13 @@ Fonctionnalités :
 - Consultation et notation des résultats de quiz
 - Envoi de notifications aux étudiants
 """
-
 import streamlit as st
 import pandas as pd
 import plotly.graph_objects as go
 import plotly.express as px
 from datetime import datetime
 
+# Importations depuis la base de données (Vérifiées et valides)
 from utils.database import (
     get_all_etudiants,
     get_module_access,
@@ -35,6 +35,7 @@ from utils.database import (
 )
 from utils.auth import get_user_info
 
+# Séparez bien le reste de votre code ici (ex: def render(): ...)
 # ─────────────────────────────────────────────────────────────
 # LABELS LISIBLES POUR LES MODULES
 # ─────────────────────────────────────────────────────────────
