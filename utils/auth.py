@@ -207,20 +207,30 @@ def verifier_connexion_cas(identifiant: str, mot_de_passe: str, url_cas: str = N
             prenom = parts[0].capitalize() if parts else "Étudiant"
             nom    = parts[1].capitalize() if len(parts) > 1 else ""
 
+# Détermination dynamique du rôle
+        email_check = (mail or identifiant).lower()
+        statut_cas = _extract("statut", r3.text).lower() or _extract("primaryAffiliation", r3.text).lower()
+        
+        if any(k in email_check for k in ["prof", "enseignant", "staff", "chercheur"]) or any(k in statut_cas for k in ["faculty", "staff", "teacher", "professor", "enseignant"]):
+            role_detecte = "professeur"
+            formation_detectee = _extract("formation", r3.text) or "Enseignant / Personnel"
+        else:
+            role_detecte = "etudiant"
+            formation_detectee = _extract("formation", r3.text) or "Via ENT"
+
         user_data = {
-            "prenom":            prenom or "Étudiant",
+            "prenom":            prenom or ("Enseignant" if role_detecte == "professeur" else "Étudiant"),
             "nom":               nom    or uid,
             "email":             mail   or identifiant,
-            "formation":         _extract("formation", r3.text) or "Via ENT",
+            "formation":         formation_detectee,
             "annee":             "2024-2025",
             "universite":        _extract("etablissement", r3.text) or "Université partenaire",
-            "role":              "etudiant",
-            "progression":       0,
-            "modules_completes": [],
-            "score_moyen":       0,
+            "role":              role_detecte,
+            "progression":       100 if role_detecte == "professeur" else 0,
+            "modules_completes": ["actions", "obligations", "derives", "fonds", "forex", "monetaire"] if role_detecte == "professeur" else [],
+            "score_moyen":       20.0 if role_detecte == "professeur" else 0.0,
             "connexion_time":    datetime.now().strftime("%d/%m/%Y %H:%M"),
-        }
-        return True, user_data, "Connexion ENT réussie"
+        }        return True, user_data, "Connexion ENT réussie"
 
     except requests.exceptions.ConnectionError:
         return False, None, "Impossible de joindre le serveur ENT."
@@ -274,17 +284,21 @@ def verifier_connexion(identifiant: str, mot_de_passe: str) -> tuple:
         if domaine.endswith(".fr") or domaine.endswith(".edu"):
             nom_parts = identifiant_clean.split("@")[0].replace(".", " ").replace("-", " ")
             parts = nom_parts.split()
+            # Détection du rôle en mode secours par l'adresse email
+            is_prof = any(k in identifiant_clean.lower() for k in ["prof", "enseignant", "staff"])
+            role_detecte = "professeur" if is_prof else "etudiant"
+
             user_data = {
-                "prenom": parts[0].capitalize() if parts else "Étudiant",
+                "prenom": parts[0].capitalize() if parts else ("Enseignant" if is_prof else "Étudiant"),
                 "nom": parts[1].capitalize() if len(parts) > 1 else "Universitaire",
                 "email": identifiant_clean,
-                "formation": "Licence / Master",
+                "formation": "Enseignant-Chercheur" if is_prof else "Licence / Master",
                 "annee": "2024-2025",
                 "universite": f"Université ({domaine})",
-                "role": "etudiant",
-                "progression": 0,
-                "modules_completes": [],
-                "score_moyen": 0,
+                "role": role_detecte,
+                "progression": 100 if is_prof else 0,
+                "modules_completes": ["actions", "obligations", "derives", "fonds", "forex", "monetaire"] if is_prof else [],
+                "score_moyen": 20.0 if is_prof else 0.0,
                 "connexion_time": datetime.now().strftime("%d/%m/%Y %H:%M"),
             }
             return True, user_data, "Connexion acceptée"
