@@ -178,7 +178,7 @@ def _render_vue_globale(user):
             return ""
 
     st.dataframe(
-        df.style.applymap(colorier_score, subset=["Score moyen"]),
+        df.style.map(colorier_score, subset=["Score moyen"]),
         use_container_width=True, hide_index=True
     )
 
@@ -283,7 +283,7 @@ def _render_fiche_etudiant(user):
         return "color:#ef4444;font-weight:600"
 
     st.dataframe(
-        df_prog.style.applymap(colorier_acces, subset=["Accès"]),
+        df_prog.style.map(colorier_acces, subset=["Accès"]),
         use_container_width=True, hide_index=True
     )
 
@@ -569,7 +569,7 @@ def _render_notes_resultats(user):
         return ""
 
     st.dataframe(
-        df_r.drop(columns=["ID"]).style.applymap(colorier_note, subset=["Note prof"]),
+        df_r.drop(columns=["ID"]).style.map(colorier_note, subset=["Note prof"]),
         use_container_width=True, hide_index=True
     )
 
