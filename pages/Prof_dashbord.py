@@ -578,44 +578,30 @@ def _render_notes_resultats(user):
     # ── Formulaire de notation ─────────────────────────────────
     st.markdown("### ✏️ Noter un résultat")
 
-    result_options = {
-        f"#{r['ID']} — {r['Étudiant']} · {r['Module']} · {r['Date']}": r["ID"]
-        for r in rows
-    }
-    choix_res = st.selectbox("Résultat à noter", list(result_options.keys()))
+    result_options = {f"#{r['ID']} — {r['Étudiant']} · {r['Module']} · {r['Date']}": r["ID"] for r in rows}
+    
+    # Résout le conflit d'identifiant identique avec l'onglet 2
+    choix_res = st.selectbox("Résultat à noter", list(result_options.keys()), key="note_input_tab_resultats")
 
-    col_note1, col_note2 = st.columns([1, 2])
-    with col_note1:
-        note_val = st.number_input(
-            "Note attribuée (/20)", min_value=0.0, max_value=20.0,
-            value=10.0, step=0.5, key="note_input_main"
-        )
-    with col_note2:
-        commentaire_val = st.text_area(
-            "Commentaire pour l'étudiant",
-            placeholder="Ex : Bonne maîtrise des options, revoir la duration...",
-            height=80,
-            key="comment_input_main"
-        )
+    with st.form(key="form_note_global"):
+        col_note1, col_note2 = st.columns([1, 2])
+        with col_note1:
+            note_val = st.number_input("Note attribuée (/20)", min_value=0.0, max_value=20.0, value=10.0, step=0.5, key="note_input_main")
+        with col_note2:
+            commentaire_val = st.text_area("Commentaire pour l'étudiant", placeholder="Ex : Bonne maîtrise...", height=80, key="comment_input_main")
+        
+        submit_global = st.form_submit_button("💾 Enregistrer la note", type="primary", use_container_width=True)
 
-    if st.button("💾 Enregistrer la note", type="primary", use_container_width=True):
-        result_id = result_options[choix_res]
-        add_note_prof(result_id, note_val, commentaire_val)
-        st.success(f"✅ Note {note_val}/20 enregistrée avec succès !")
+        if submit_global:
+            result_id = result_options[choix_res]
+            add_note_prof(result_id, note_val, commentaire_val)
+            st.success(f"✅ Note {note_val}/20 enregistrée avec succès !")
 
-        # Notifie l'étudiant
-        # Retrouve l'étudiant concerné
-        res_concerne = next((r for r in resultats if r["id"] == result_id), None)
-        if res_concerne:
-            msg = (f"Votre résultat sur **{MODULE_LABELS.get(res_concerne['module_key'], '')}** "
-                   f"a été noté **{note_val}/20** par votre professeur."
-                   + (f"\n💬 *{commentaire_val}*" if commentaire_val else ""))
-            send_notification(
-                user.get("db_id", 1),
-                msg,
-                res_concerne["etudiant_id"]
-            )
-        st.rerun()
+            res_concerne = next((r for r in resultats if r["id"] == result_id), None)
+            if res_concerne:
+                msg = f"Votre résultat sur **{MODULE_LABELS.get(res_concerne['module_key'], '')}** a été noté **{note_val}/20** par votre professeur." + (f"\n💬 *{commentaire_val}*" if commentaire_val else "")
+                send_notification(user.get("db_id", 1), msg, res_concerne["etudiant_id"])
+            st.rerun()
 
     # ── Statistiques rapides ───────────────────────────────────
     st.markdown("---")
