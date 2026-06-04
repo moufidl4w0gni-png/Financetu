@@ -58,7 +58,7 @@ COMPTES_DEMO = {
         "universite": "CY Cergy Paris Université",
         "numero_etudiant": "E00001",
         "email": "prof@demo.finlearn.edu",
-        "role": "enseignant",
+        "role": "professeur",
         "progression": 100,
         "modules_completes": ["actions", "obligations", "derives", "fonds", "forex", "monetaire"],
         "score_moyen": 18.0,
