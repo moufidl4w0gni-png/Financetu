@@ -298,19 +298,19 @@ def create_or_update_user(email: str, nom: str, prenom: str,
     return user_id
 
 def get_all_etudiants():
-    """Retourne la liste de tous les étudiants avec toutes les clés requises par le dashboard."""
+    """Retourne la liste de tous les étudiants avec toutes les clés requises (y compris les IDs)."""
     from utils.auth import COMPTES_DEMO
     
     rows = []
     for email, infos in COMPTES_DEMO.items():
         if infos.get("role") == "etudiant":
-            # On récupère la liste des modules complétés pour en déduire le nombre
             liste_modules = infos.get("modules_completes", [])
             nb_modules = len(liste_modules)
+            id_etudiant = infos.get("numero_etudiant", "20240001")
             
             rows.append({
                 # Clés d'affichage pour les tableaux st.dataframe
-                "ID": infos.get("numero_etudiant", "20240001"),
+                "ID": id_etudiant,
                 "Étudiant": f"{infos.get('prenom')} {infos.get('nom')}",
                 "Formation": infos.get("formation", "L3"),
                 "Score moyen": infos.get("score_moyen", 0.0),
@@ -318,9 +318,10 @@ def get_all_etudiants():
                 "Dernière connexion": infos.get("connexion_time", "Aucune"),
                 
                 # Clés techniques requises par les calculs du prof_dashboard
+                "id": id_etudiant,  # 👈 Correction de la KeyError (Ligne 154)
                 "score_moyen": infos.get("score_moyen", 0.0),
                 "progression": infos.get("progression", 0),
-                "modules_debloques": nb_modules,  # 👈 Correction de la KeyError (Ligne 139)
+                "modules_debloques": nb_modules,
                 "email": email,
                 "prenom": infos.get("prenom", ""),
                 "nom": infos.get("nom", "")
