@@ -55,10 +55,6 @@ MODULE_LABELS = {
 def render():
     """Point d'entrée de la page professeur."""
     user = get_user_info()
-
-    # ── BLOC DE DIAGNOSTIC TEMPORAIRE ──
-    st.warning("🔍 Mode Diagnostic Activé")
-    st.json({"Contenu de la variable user": user, "Contenu de st.session_state": dict(st.session_state)})
     # ──────────────────────────────────
 
     # Seuls les professeurs et admins peuvent accéder à cette page
