@@ -298,20 +298,29 @@ def create_or_update_user(email: str, nom: str, prenom: str,
     return user_id
 
 def get_all_etudiants():
-    """Retourne la liste de tous les étudiants (Mock/Démo pour éviter l'erreur SQLite)."""
-    # On importe les comptes démo directement depuis le module auth
+    """Retourne la liste de tous les étudiants avec toutes les clés requises."""
     from utils.auth import COMPTES_DEMO
     
     rows = []
     for email, infos in COMPTES_DEMO.items():
         if infos.get("role") == "etudiant":
+            # On crée un dictionnaire qui possède à la fois les clés d'affichage 
+            # ET les clés de calcul requises par le prof_dashboard
             rows.append({
+                # Clés d'affichage pour les tableaux st.dataframe
                 "ID": infos.get("numero_etudiant", "20240001"),
                 "Étudiant": f"{infos.get('prenom')} {infos.get('nom')}",
                 "Formation": infos.get("formation", "L3"),
                 "Score moyen": infos.get("score_moyen", 0.0),
                 "Progression": f"{infos.get('progression', 0)}%",
-                "Dernière connexion": infos.get("connexion_time", "Aucune")
+                "Dernière connexion": infos.get("connexion_time", "Aucune"),
+                
+                # Clés techniques requises par les calculs du dashboard (Ligne 136)
+                "score_moyen": infos.get("score_moyen", 0.0),
+                "progression": infos.get("progression", 0),
+                "email": email,
+                "prenom": infos.get("prenom", ""),
+                "nom": infos.get("nom", "")
             })
             
     return rows
