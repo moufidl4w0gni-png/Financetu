@@ -90,14 +90,11 @@ def valider_format_identifiant(identifiant: str) -> tuple[bool, str]:
         if not re.match(pattern, identifiant):
             return False, "Format d'email invalide."
         domaine = identifiant.split("@")[1]
-        # Accepte tous les domaines en .fr ou .edu ou ceux listés
-        if not (domaine.endswith(".fr") or domaine.endswith(".edu") or
-                domaine in DOMAINES_AUTORISÉS):
-            return False, (f"Le domaine '@{domaine}' n'est pas reconnu. "
-                           "Utilisez votre email universitaire ou le compte démo.")
+        if not (domaine.endswith(".fr") or domaine.endswith(".edu") or domaine in DOMAINES_AUTORISÉS):
+            return False, f"Le domaine '@{domaine}' n'est pas reconnu. Utilisez votre email universitaire ou le compte démo."
         return True, identifiant
 
-    # Numéro étudiant (8-10 chiffres)
+    # Numéro étudiant (7-12 chiffres)
     if re.match(r'^\d{7,12}$', identifiant):
         return True, identifiant
 
@@ -118,9 +115,7 @@ def verifier_connexion_demo(identifiant: str, mot_de_passe: str):
 
 
 def verifier_connexion_cas(identifiant: str, mot_de_passe: str, url_cas: str = None):
-    """
-    Authentification CAS robuste avec validation du ticket côté serveur.
-    """
+    """Authentification CAS robuste avec validation du ticket côté serveur."""
     try:
         cas_url = url_cas or st.secrets.get("cas", {}).get("url", "")
         service_url = st.secrets.get("cas", {}).get("service", "")
@@ -137,14 +132,13 @@ def verifier_connexion_cas(identifiant: str, mot_de_passe: str, url_cas: str = N
         
         r = session.get(login_url, params=params, timeout=10)
         if r.status_code != 200:
-            return False, None, "Service ENT inaccessible (code {r.status_code})"
+            return False, None, f"Service ENT inaccessible (code {r.status_code})"
 
         # ── Étape 2 : extraction des tokens du formulaire ─────────────────
         lt_match        = re.search(r'name="lt"\s+value="([^"]+)"', r.text)
         execution_match = re.search(r'name="execution"\s+value="([^"]+)"', r.text)
 
         if not execution_match:
-            # Certains CAS modernes n'ont pas de champ "lt"
             return False, None, "Formulaire CAS non reconnu — contactez l'admin."
 
         payload = {
@@ -162,26 +156,22 @@ def verifier_connexion_cas(identifiant: str, mot_de_passe: str, url_cas: str = N
             login_url,
             data=payload,
             params=params,
-            allow_redirects=False,   # ← important : on intercepte la redirection
+            allow_redirects=False,
             timeout=10,
         )
 
-        # CAS redirige vers service_url?ticket=ST-xxxx en cas de succès
         location = r2.headers.get("Location", "")
         ticket_match = re.search(r"ticket=(ST-[^&]+)", location)
 
         if not ticket_match:
-            # Vérification des messages d'erreur connus
             body = r2.text.lower()
-            if any(k in body for k in ["invalid.credentials", "bad.credentials",
-                                        "authenticationexception", "incorrect"]):
+            if any(k in body for k in ["invalid.credentials", "bad.credentials", "authenticationexception", "incorrect"]):
                 return False, None, "Identifiant ou mot de passe incorrect."
             return False, None, "Connexion ENT échouée. Vérifiez vos identifiants."
 
         ticket = ticket_match.group(1)
 
         # ── Étape 4 : validation du ticket côté serveur ───────────────────
-        # C'est l'étape manquante dans le code original !
         validate_url = f"{cas_url}/serviceValidate"
         r3 = session.get(validate_url, params={
             "service": service_url,
@@ -201,15 +191,14 @@ def verifier_connexion_cas(identifiant: str, mot_de_passe: str, url_cas: str = N
         nom    = _extract("sn", r3.text)        or _extract("lastname", r3.text)
         mail   = _extract("mail", r3.text)      or (identifiant if "@" in identifiant else "")
 
-        # Fallback si l'ENT ne renvoie pas les attributs
         if not prenom and "@" in identifiant:
             parts = identifiant.split("@")[0].replace(".", " ").replace("-", " ").split()
             prenom = parts[0].capitalize() if parts else "Étudiant"
             nom    = parts[1].capitalize() if len(parts) > 1 else ""
 
-# Détermination dynamique du rôle
+        # Détermination dynamique du rôle
         email_check = (mail or identifiant).lower()
-        statut_cas = _extract("statut", r3.text).lower() or _extract("primaryAffiliation", r3.text).lower()
+        statut_cas = (_extract("statut", r3.text) or _extract("primaryAffiliation", r3.text)).lower()
         
         if any(k in email_check for k in ["prof", "enseignant", "staff", "chercheur"]) or any(k in statut_cas for k in ["faculty", "staff", "teacher", "professor", "enseignant"]):
             role_detecte = "professeur"
@@ -230,7 +219,8 @@ def verifier_connexion_cas(identifiant: str, mot_de_passe: str, url_cas: str = N
             "modules_completes": ["actions", "obligations", "derives", "fonds", "forex", "monetaire"] if role_detecte == "professeur" else [],
             "score_moyen":       20.0 if role_detecte == "professeur" else 0.0,
             "connexion_time":    datetime.now().strftime("%d/%m/%Y %H:%M"),
-        }        return True, user_data, "Connexion ENT réussie"
+        }
+        return True, user_data, "Connexion ENT réussie"
 
     except requests.exceptions.ConnectionError:
         return False, None, "Impossible de joindre le serveur ENT."
@@ -241,20 +231,13 @@ def verifier_connexion_cas(identifiant: str, mot_de_passe: str, url_cas: str = N
 
 
 def verifier_connexion(identifiant: str, mot_de_passe: str) -> tuple:
-    """
-    Point d'entrée principal de l'authentification.
-    Essaie dans l'ordre :
-    1. Comptes de démonstration
-    2. Authentification CAS ENT
-    3. Validation basique (si ENT indisponible)
-    """
+    """Point d'entrée principal de l'authentification."""
     if not identifiant or not mot_de_passe:
         return False, None, "Veuillez remplir tous les champs."
 
-    # Validation du format
     valide, identifiant_clean = valider_format_identifiant(identifiant)
     if not valide:
-        return False, None, identifiant_clean  # identifiant_clean contient le message d'erreur
+        return False, None, identifiant_clean
 
     # 1. Vérification comptes démo
     succes, user_data, message = verifier_connexion_demo(identifiant_clean, mot_de_passe)
@@ -268,23 +251,23 @@ def verifier_connexion(identifiant: str, mot_de_passe: str) -> tuple:
             succes, user_data, message = verifier_connexion_cas(identifiant_clean, mot_de_passe, cas_url)
             if succes:
                 return True, user_data, message
-            if "incorrect" in message.lower() or "invalide" in message.lower():
+            if message and ("incorrect" in message.lower() or "invalide" in message.lower()):
                 return False, None, message
     except Exception:
         pass
 
-    # 3. Mode permissif (si ENT non configuré) — pour démo / développement
+    # 3. Mode permissif (si ENT non configuré)
     try:
         allow_all = st.secrets.get("auth", {}).get("allow_all_university_emails", False)
     except Exception:
-        allow_all = True  # En dev, on autorise tout
+        allow_all = True
 
     if allow_all and "@" in identifiant_clean:
         domaine = identifiant_clean.split("@")[1]
         if domaine.endswith(".fr") or domaine.endswith(".edu"):
             nom_parts = identifiant_clean.split("@")[0].replace(".", " ").replace("-", " ")
             parts = nom_parts.split()
-            # Détection du rôle en mode secours par l'adresse email
+            
             is_prof = any(k in identifiant_clean.lower() for k in ["prof", "enseignant", "staff"])
             role_detecte = "professeur" if is_prof else "etudiant"
 
@@ -306,9 +289,7 @@ def verifier_connexion(identifiant: str, mot_de_passe: str) -> tuple:
     return (
         False,
         None,
-        "Identifiant ou mot de passe incorrect. "
-        "Utilisez vos identifiants ENT ou le compte démo : "
-        "etudiant@demo.finlearn.edu / demo2025"
+        "Identifiant ou mot de passe incorrect. Utilisez vos identifiants ENT ou le compte démo : etudiant@demo.finlearn.edu / demo2025"
     )
 
 
