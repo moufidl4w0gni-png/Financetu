@@ -436,9 +436,8 @@ def update_progression(etudiant_id: int, module_key: str, pct: float = None):
     conn.commit()
     conn.close()
 
-
 def get_progression_etudiant(etudiant_id):
-    """Simule la progression par module pour un étudiant (Mock/Démo)."""
+    """Simule la progression par module sous forme de dictionnaire pour un étudiant (Mock/Démo)."""
     from utils.auth import COMPTES_DEMO
     
     # On cherche le compte démo qui correspond à cet ID étudiant
@@ -448,9 +447,23 @@ def get_progression_etudiant(etudiant_id):
             compte = c
             break
             
+    # Si le compte n'est pas trouvé, on renvoie un dictionnaire vide
     if not compte:
-        return []
+        return {}
         
+    # On construit un dictionnaire global indexé par module_key (requis par la ligne 269)
+    modules_completes = compte.get("modules_completes", [])
+    progression_dict = {}
+    
+    for mod in ["actions", "obligations", "derives", "fonds", "forex", "monetaire"]:
+        est_complete = mod in modules_completes
+        progression_dict[mod] = {
+            "pct_complete": 100 if est_complete else 0,
+            "nb_visites": 5 if est_complete else 0,
+            "derniere_visite": "04/06/2026" if est_complete else "N/A"
+        }
+        
+    return progression_dict
     # On construit une fausse liste de progressions basées sur les modules complétés du compte
     modules_completes = compte.get("modules_completes", [])
     progression_liste = []
