@@ -430,27 +430,45 @@ def update_progression(etudiant_id: int, module_key: str, pct: float = None):
     conn.close()
 
 
-def get_progression_etudiant(etudiant_id: int) -> dict:
-    """Retourne la progression complète d'un étudiant par module."""
-    conn = get_connection()
-    c = conn.cursor()
-    c.execute("""
-        SELECT module_key, pct_complete, nb_visites, derniere_visite
-        FROM progression WHERE etudiant_id = ?
-    """, (etudiant_id,))
-    rows = c.fetchall()
-    conn.close()
-    return {row["module_key"]: dict(row) for row in rows}
+def get_progression_etudiant(etudiant_id):
+    """Simule la progression par module pour un étudiant (Mock/Démo)."""
+    from utils.auth import COMPTES_DEMO
+    
+    # On cherche le compte démo qui correspond à cet ID étudiant
+    compte = None
+    for c in COMPTES_DEMO.values():
+        if c.get("numero_etudiant") == str(etudiant_id):
+            compte = c
+            break
+            
+    if not compte:
+        return []
+        
+    # On construit une fausse liste de progressions basées sur les modules complétés du compte
+    modules_completes = compte.get("modules_completes", [])
+    progression_liste = []
+    
+    for mod in ["actions", "obligations", "derives", "fonds", "forex", "monetaire"]:
+        est_complete = mod in modules_completes
+        progression_liste.append({
+            "module_key": mod,
+            "pct_complete": 100 if est_complete else 0,
+            "nb_visites": 5 if est_complete else 0,
+            "derniere_visite": "04/06/2026" if est_complete else "N/A"
+        })
+        
+    return progression_liste
 
 
-def get_progression_globale(etudiant_id: int) -> float:
-    """Retourne le pourcentage global de progression d'un étudiant (0-100)."""
-    prog = get_progression_etudiant(etudiant_id)
-    if not prog:
-        return 0.0
-    total = sum(v["pct_complete"] for v in prog.values())
-    return round(total / len(MODULES), 1)
-
+def get_progression_globale(etudiant_id):
+    """Simule le pourcentage global de progression d'un étudiant."""
+    from utils.auth import COMPTES_DEMO
+    
+    for c in COMPTES_DEMO.values():
+        if c.get("numero_etudiant") == str(etudiant_id):
+            return c.get("progression", 0)
+            
+    return 0
 
 # ─────────────────────────────────────────────────────────────
 # FONCTIONS QUIZ & SCORES
