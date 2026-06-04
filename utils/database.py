@@ -332,25 +332,32 @@ def get_all_etudiants():
 # FONCTIONS ACCÈS MODULES
 # ─────────────────────────────────────────────────────────────
 
-def get_module_access(etudiant_id: int) -> dict:
-    """
-    Retourne un dict {module_key: True/False} pour un étudiant.
-    Exemple : {'actions': True, 'obligations': False, ...}
-    """
-    conn = get_connection()
-    c = conn.cursor()
-    c.execute("""
-        SELECT module_key, debloque FROM module_access
-        WHERE etudiant_id = ?
-    """, (etudiant_id,))
-    rows = c.fetchall()
-    conn.close()
-
-    # Construit le dictionnaire
-    access = {mod: (mod in MODULES_LIBRES) for mod in MODULES}
-    for row in rows:
-        access[row["module_key"]] = bool(row["debloque"])
-    return access
+def get_module_access(etudiant_id):
+    """Simule les permissions d'accès aux modules pour un étudiant (Mock/Démo)."""
+    from utils.auth import COMPTES_DEMO
+    
+    # On cherche le compte démo correspondant
+    compte = None
+    for c in COMPTES_DEMO.values():
+        if c.get("numero_etudiant") == str(etudiant_id):
+            compte = c
+            break
+            
+    # Si c'est un enseignant ou si le compte n'est pas trouvé, on débloque tout par défaut
+    if not compte or compte.get("role") == "professeur":
+        return {mod: 1 for mod in ["actions", "obligations", "derives", "fonds", "forex", "monetaire"]}
+        
+    # Pour un étudiant démo, on considère que les modules complétés sont débloqués (valeur 1)
+    # et on laisse l'accès aux autres (ou 0 si vous voulez simuler des modules verrouillés)
+    modules_completes = compte.get("modules_completes", [])
+    
+    access_dict = {}
+    for mod in ["actions", "obligations", "derives", "fonds", "forex", "monetaire"]:
+        # Ici on met 1 (débloqué) pour tout le monde en démo, 
+        # mais vous pouvez mettre `1 if mod in modules_completes else 0` si vous voulez tester les verrous.
+        access_dict[mod] = 1 
+        
+    return access_dict
 
 
 def set_module_access(etudiant_id: int, module_key: str,
