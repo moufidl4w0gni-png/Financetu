@@ -161,6 +161,7 @@ def sidebar_navigation():
         st.markdown("---")
 
         # ── Menu de navigation ──────────────────────────────
+        # ── Menu de navigation ──────────────────────────────
         st.markdown("### 🧭 Navigation")
 
         pages = [
@@ -170,11 +171,15 @@ def sidebar_navigation():
             ("⚙️", "Produits dérivés",     "derives"),
             ("💼", "Fonds d'investissement","fonds"),
             ("💱", "Forex",                "forex"),
-            ("💰", "Marché monétaire",     "monetaire"),
-            ("🧠", "Quiz",                 "quiz"),
+            ("💰", "Marché monétaire",      "monetaire"),
+            ("🧠", "Quiz",                  "quiz"),
             ("🔬", "Simulateur",           "simulateur"),
             ("📖", "Glossaire",            "glossaire"),
         ]
+
+        # 👑 AJOUT DYNAMIQUE : Si l'utilisateur est prof ou admin, on ajoute l'accès
+        if user.get("role") in ("professeur", "admin"):
+            pages.insert(1, ("👨‍🏫", "Espace Enseignant", "prof_dashboard"))
 
         for icone, label, cle in pages:
             actif = st.session_state.get("page") == cle
@@ -219,6 +224,9 @@ def router():
 
     if page == "dashboard":
         from pages.dashboard import render
+        render()
+    elif page == "prof_dashboard":  # 👈 AJOUT DE LA PAGE PROFESSEUR
+        from pages.prof_dashboard import render
         render()
     elif page == "actions":
         from pages.actions import render
