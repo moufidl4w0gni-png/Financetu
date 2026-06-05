@@ -13,7 +13,7 @@ from utils.styles import inject_css
 # CONFIGURATION PAGE
 # ─────────────────────────────────────────────────────────────
 st.set_page_config(
-    page_title="FinLearn — Plateforme Financière",
+    page_title="Finétu — Plateforme Financière",
     page_icon="📈",
     layout="wide",
     initial_sidebar_state="expanded",
