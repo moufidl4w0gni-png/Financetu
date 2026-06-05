@@ -144,44 +144,78 @@ def page_connexion():
 # SIDEBAR — Navigation principale
 # ─────────────────────────────────────────────────────────────
 def sidebar_navigation():
+    from utils.database import get_module_access, get_user_db_id, create_or_update_user, init_db, count_notifications_non_lues
+
+    init_db()
     user = st.session_state.user
+    role = user.get("role", "etudiant")
+
+    # ── Résout et met en cache le db_id SQLite ────────────────
+    if not user.get("db_id"):
+        db_id = get_user_db_id(user.get("email", ""))
+        if not db_id:
+            db_id = create_or_update_user(
+                email=user.get("email", ""),
+                nom=user.get("nom", ""),
+                prenom=user.get("prenom", ""),
+                role=role,
+                formation=user.get("formation", ""),
+                universite=user.get("universite", ""),
+            )
+        st.session_state.user["db_id"] = db_id
+    db_id = st.session_state.user.get("db_id")
+
+    # ── Accès modules depuis SQLite (uniquement pour étudiant) ─
+    if role in ("professeur", "admin"):
+        access = None   # prof voit tout
+    else:
+        access = get_module_access(db_id) if db_id else {}
 
     with st.sidebar:
         # En-tête utilisateur
+        nb_notifs = count_notifications_non_lues(db_id) if db_id and role == "etudiant" else 0
+        notif_badge = f" 🔔{nb_notifs}" if nb_notifs else ""
+
         st.markdown(f"""
         <div class='sidebar-header'>
             <div class='sidebar-avatar'>{user['prenom'][0]}{user['nom'][0]}</div>
             <div class='sidebar-user-info'>
-                <div class='sidebar-name'>{user['prenom']} {user['nom']}</div>
+                <div class='sidebar-name'>{user['prenom']} {user['nom']}{notif_badge}</div>
                 <div class='sidebar-role'>{user['formation']} · {user['annee']}</div>
             </div>
         </div>
         """, unsafe_allow_html=True)
 
         st.markdown("---")
-
-        # ── Menu de navigation ──────────────────────────────
-        # ── Menu de navigation ──────────────────────────────
         st.markdown("### 🧭 Navigation")
 
-        pages = [
-            ("🏠", "Tableau de bord",      "dashboard"),
-            ("📈", "Actions",              "actions"),
-            ("🏛️", "Obligations",          "obligations"),
-            ("⚙️", "Produits dérivés",     "derives"),
-            ("💼", "Fonds d'investissement","fonds"),
-            ("💱", "Forex",                "forex"),
-            ("💰", "Marché monétaire",      "monetaire"),
+        # Tous les modules possibles avec leur clé d'accès
+        toutes_pages = [
+            ("🏠", "Tableau de bord",       "dashboard"),
+            ("📈", "Actions",               "actions"),
+            ("🏛️", "Obligations",           "obligations"),
+            ("⚙️", "Produits dérivés",      "derives"),
+            ("💼", "Fonds d'investissement", "fonds"),
+            ("💱", "Forex",                 "forex"),
+            ("💰", "Marché monétaire",       "monetaire"),
             ("🧠", "Quiz",                  "quiz"),
-            ("🔬", "Simulateur",           "simulateur"),
-            ("📖", "Glossaire",            "glossaire"),
+            ("🔬", "Simulateur",            "simulateur"),
+            ("📖", "Glossaire",             "glossaire"),
         ]
 
-        # 👑 AJOUT DYNAMIQUE : Si l'utilisateur est prof ou admin, on ajoute l'accès
-        if user.get("role") in ("professeur", "admin"):
-            pages.insert(1, ("👨‍🏫", "Espace Enseignant", "prof_dashboard"))
+        # Prof/admin : espace enseignant + tous les modules
+        if role in ("professeur", "admin"):
+            toutes_pages.insert(1, ("👨‍🏫", "Espace Enseignant", "prof_dashboard"))
+            pages_visibles = toutes_pages
+        else:
+            # Étudiant : seulement les modules autorisés par le prof
+            pages_visibles = [
+                (icone, label, cle)
+                for icone, label, cle in toutes_pages
+                if access.get(cle, False)
+            ]
 
-        for icone, label, cle in pages:
+        for icone, label, cle in pages_visibles:
             actif = st.session_state.get("page") == cle
             if st.button(
                 f"{icone} {label}",
@@ -217,10 +251,26 @@ def sidebar_navigation():
 # ROUTEUR DE PAGES
 # ─────────────────────────────────────────────────────────────
 def router():
+    from utils.database import get_module_access
+
     if "page" not in st.session_state:
         st.session_state.page = "dashboard"
 
     page = st.session_state.get("page", "dashboard")
+    user = st.session_state.user
+    role = user.get("role", "etudiant")
+
+    # Garde d'accès : empêche un étudiant d'accéder à un module verrouillé
+    MODULES_PROTEGES = {"actions", "obligations", "derives", "fonds",
+                        "forex", "monetaire", "simulateur"}
+    if role not in ("professeur", "admin") and page in MODULES_PROTEGES:
+        db_id = user.get("db_id")
+        if db_id:
+            access = get_module_access(db_id)
+            if not access.get(page, False):
+                st.error("🔒 Ce module n'est pas encore disponible. Votre professeur doit vous en donner l'accès.")
+                st.info("👈 Retournez au tableau de bord depuis le menu de gauche.")
+                st.stop()
 
     if page == "dashboard":
         from pages.dashboard import render
