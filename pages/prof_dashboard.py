@@ -30,6 +30,9 @@ from utils.database import (
     add_note_prof,
     send_notification,
     get_notifications,
+    get_user_db_id,
+    create_or_update_user,
+    init_db,
     MODULES,
     MODULES_LIBRES,
 )
@@ -55,8 +58,22 @@ MODULE_LABELS = {
 
 def render():
     """Point d'entrée de la page professeur."""
+    init_db()
     user = get_user_info()
-    # ──────────────────────────────────
+
+    # Résout et stocke le db_id SQLite du prof dans la session
+    if not user.get("db_id"):
+        db_id = get_user_db_id(user.get("email", ""))
+        if not db_id:
+            db_id = create_or_update_user(
+                email=user.get("email", ""),
+                nom=user.get("nom", ""),
+                prenom=user.get("prenom", ""),
+                role=user.get("role", "professeur"),
+                formation=user.get("formation", ""),
+                universite=user.get("universite", ""),
+            )
+        st.session_state.user["db_id"] = db_id
 
     # Seuls les professeurs et admins peuvent accéder à cette page
     if user.get("role") not in ("professeur", "admin"):
