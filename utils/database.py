@@ -2,24 +2,22 @@
 utils/database.py
 ==================
 Base de données SQLite pour FinLearn.
-Gère : utilisateurs, accès aux modules, scores, progression.
+Gère : utilisateurs, accès aux modules, scores, progression, notifications.
 
-SQLite est intégré à Python — aucune installation externe requise.
-Le fichier finlearn.db est créé automatiquement au premier lancement.
+Toutes les données sont persistées en SQLite — les changements du professeur
+(accès modules, notifications) sont immédiatement visibles côté étudiant.
 """
 
 import sqlite3
 import os
 import hashlib
 from datetime import datetime
-from pathlib import Path
 
 # ─────────────────────────────────────────────────────────────
 # CHEMIN DE LA BASE DE DONNÉES
-# En local  : fichier finlearn.db dans le dossier du projet
-# Streamlit Cloud : /tmp/finlearn.db (réinitialisé à chaque restart)
+# Streamlit Cloud : /tmp/ est le seul dossier accessible en écriture
 # ─────────────────────────────────────────────────────────────
-DB_PATH = os.environ.get("FINLEARN_DB", "finlearn.db")
+DB_PATH = os.environ.get("FINLEARN_DB", "/tmp/finlearn.db")
 
 # ─────────────────────────────────────────────────────────────
 # LISTE DES MODULES DISPONIBLES
@@ -38,30 +36,22 @@ MODULES = [
 ]
 
 # Modules toujours accessibles (même sans autorisation prof)
-MODULES_LIBRES = ["dashboard", "glossaire" , "quiz"]
+MODULES_LIBRES = ["dashboard", "glossaire", "quiz"]
 
 
 def get_connection():
-    """
-    Retourne une connexion SQLite.
-    check_same_thread=False est nécessaire pour Streamlit
-    qui utilise plusieurs threads.
-    """
     conn = sqlite3.connect(DB_PATH, check_same_thread=False)
-    conn.row_factory = sqlite3.Row  # Permet d'accéder aux colonnes par nom
+    conn.row_factory = sqlite3.Row
+    conn.execute("PRAGMA journal_mode=WAL")   # lectures/écritures simultanées
     return conn
 
 
 def init_db():
-    """
-    Initialise la base de données en créant toutes les tables
-    si elles n'existent pas encore.
-    Appelé au démarrage de l'application.
-    """
+    """Crée toutes les tables et insère les données initiales."""
     conn = get_connection()
     c = conn.cursor()
 
-    # ── TABLE users ──────────────────────────────────────────
+    # ── TABLE users ───────────────────────────────────────────
     c.execute("""
         CREATE TABLE IF NOT EXISTS users (
             id            INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -89,7 +79,6 @@ def init_db():
             debloque_par  INTEGER,
             debloque_le   TEXT,
             FOREIGN KEY (etudiant_id) REFERENCES users(id),
-            FOREIGN KEY (debloque_par) REFERENCES users(id),
             UNIQUE(etudiant_id, module_key)
         )
     """)
@@ -102,8 +91,8 @@ def init_db():
             module_key    TEXT NOT NULL,
             score         REAL NOT NULL,
             score_max     REAL NOT NULL,
-            nb_questions  INTEGER,
-            nb_correctes  INTEGER,
+            nb_questions  INTEGER DEFAULT 0,
+            nb_correctes  INTEGER DEFAULT 0,
             theme         TEXT,
             note_prof     REAL,
             commentaire   TEXT,
@@ -133,6 +122,7 @@ def init_db():
             id              INTEGER PRIMARY KEY AUTOINCREMENT,
             destinataire_id INTEGER,
             expediteur_id   INTEGER NOT NULL,
+            expediteur_nom  TEXT DEFAULT 'Professeur',
             message         TEXT NOT NULL,
             lu              INTEGER DEFAULT 0,
             cree_le         TEXT DEFAULT (datetime('now')),
@@ -147,28 +137,33 @@ def init_db():
 
 
 def _inserer_donnees_initiales(conn):
-    """Insère les comptes par défaut si la base est vide."""
+    """Insère les comptes démo par défaut si la base est vide."""
     c = conn.cursor()
     c.execute("SELECT COUNT(*) FROM users")
     if c.fetchone()[0] > 0:
         return
 
+    # Professeur démo
     hash_prof = hashlib.sha256("prof2025".encode()).hexdigest()
     c.execute("""
         INSERT OR IGNORE INTO users
         (email, nom, prenom, role, formation, universite, password_hash)
         VALUES (?, ?, ?, ?, ?, ?, ?)
-    """, ("prof@demo.finlearn.edu", "Martin", "Marie", "professeur", "Enseignant-Chercheur Finance", "CY Cergy Paris Université", hash_prof))
+    """, ("prof@demo.finlearn.edu", "Martin", "Marie", "professeur",
+          "Enseignant-Chercheur Finance", "CY Cergy Paris Université", hash_prof))
 
+    # Étudiant démo
     hash_etu = hashlib.sha256("demo2025".encode()).hexdigest()
     c.execute("""
         INSERT OR IGNORE INTO users
         (email, nom, prenom, role, formation, universite, password_hash)
         VALUES (?, ?, ?, ?, ?, ?, ?)
-    """, ("etudiant@demo.finlearn.edu", "Dupont", "Alex", "etudiant", "L3 Éco-Finance", "CY Cergy Paris Université", hash_etu))
+    """, ("etudiant@demo.finlearn.edu", "Dupont", "Alex", "etudiant",
+          "L3 Éco-Finance", "CY Cergy Paris Université", hash_etu))
 
     conn.commit()
 
+    # Accès modules pour l'étudiant démo
     c.execute("SELECT id FROM users WHERE email = ?", ("etudiant@demo.finlearn.edu",))
     row = c.fetchone()
     if row:
@@ -179,15 +174,27 @@ def _inserer_donnees_initiales(conn):
                 INSERT OR IGNORE INTO module_access (etudiant_id, module_key, debloque)
                 VALUES (?, ?, ?)
             """, (etu_id, mod, debloque))
+
+        # Résultats de quiz démo
+        c.execute("""
+            INSERT OR IGNORE INTO quiz_results
+            (etudiant_id, module_key, score, score_max, nb_questions, nb_correctes, theme, passe_le)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        """, (etu_id, "actions", 14.0, 20.0, 10, 7, "Marchés boursiers", "2025-03-12 10:30"))
+        c.execute("""
+            INSERT OR IGNORE INTO quiz_results
+            (etudiant_id, module_key, score, score_max, nb_questions, nb_correctes, theme, passe_le)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        """, (etu_id, "obligations", 15.0, 20.0, 10, 8, "Taux d'intérêt", "2025-03-18 14:15"))
+
         conn.commit()
 
 
 # ─────────────────────────────────────────────────────────────
-# FONCTIONS UTILISATEURS (MOCKÉES / SIMULÉES POUR LE MODE DÉMO)
+# UTILISATEURS
 # ─────────────────────────────────────────────────────────────
 
 def get_user_by_email(email: str) -> dict | None:
-    """Retourne un utilisateur par son email, ou None."""
     conn = get_connection()
     c = conn.cursor()
     c.execute("SELECT * FROM users WHERE email = ? AND actif = 1", (email.lower(),))
@@ -199,7 +206,7 @@ def get_user_by_email(email: str) -> dict | None:
 def create_or_update_user(email: str, nom: str, prenom: str,
                           role: str = "etudiant", formation: str = "",
                           universite: str = "") -> int:
-    """Crée un nouvel utilisateur ou met à jour sa dernière connexion."""
+    """Crée ou met à jour un utilisateur. Retourne son id SQLite."""
     conn = get_connection()
     c = conn.cursor()
     email = email.lower()
@@ -209,10 +216,8 @@ def create_or_update_user(email: str, nom: str, prenom: str,
     row = c.fetchone()
 
     if row:
-        c.execute("""
-            UPDATE users SET last_login = ?, nom = ?, prenom = ?
-            WHERE email = ?
-        """, (now, nom, prenom, email))
+        c.execute("UPDATE users SET last_login=?, nom=?, prenom=? WHERE email=?",
+                  (now, nom, prenom, email))
         user_id = row["id"]
     else:
         c.execute("""
@@ -233,268 +238,334 @@ def create_or_update_user(email: str, nom: str, prenom: str,
     return user_id
 
 
-def get_all_etudiants():
-    """Retourne la liste complète des étudiants simulés (Requis par prof_dashboard)."""
-    from utils.auth import COMPTES_DEMO
-    
-    rows = []
-    for email, infos in COMPTES_DEMO.items():
-        if infos.get("role") == "etudiant":
-            liste_modules = infos.get("modules_completes", [])
-            nb_modules = len(liste_modules)
-            id_etudiant = infos.get("numero_etudiant", "20240001")
-            
-            rows.append({
-                "ID": id_etudiant,
-                "Étudiant": f"{infos.get('prenom')} {infos.get('nom')}",
-                "Formation": infos.get("formation", "L3"),
-                "Score moyen": infos.get("score_moyen", 0.0),
-                "Progression": f"{infos.get('progression', 0)}%",
-                "Dernière connexion": infos.get("connexion_time", "Aucune"),
-                
-                "id": id_etudiant,
-                "score_moyen": infos.get("score_moyen", 0.0),
-                "progression": infos.get("progression", 0),
-                "modules_debloques": nb_modules,
-                "email": email,
-                "prenom": infos.get("prenom", ""),
-                "nom": infos.get("nom", "")
-            })
-            
-    return rows
+def get_user_db_id(email: str) -> int | None:
+    """Retourne l'id SQLite d'un utilisateur par son email."""
+    conn = get_connection()
+    c = conn.cursor()
+    c.execute("SELECT id FROM users WHERE email = ?", (email.lower(),))
+    row = c.fetchone()
+    conn.close()
+    return row["id"] if row else None
 
 
 # ─────────────────────────────────────────────────────────────
-# FONCTIONS ACCÈS MODULES (MOCKÉES)
+# ÉTUDIANTS (vue prof)
 # ─────────────────────────────────────────────────────────────
 
+def get_all_etudiants() -> list:
+    """Retourne tous les étudiants avec leur progression et score moyen."""
+    conn = get_connection()
+    c = conn.cursor()
+    c.execute("""
+        SELECT u.id, u.email, u.nom, u.prenom, u.formation, u.universite, u.last_login
+        FROM users u
+        WHERE u.role = 'etudiant' AND u.actif = 1
+        ORDER BY u.nom, u.prenom
+    """)
+    users = [dict(r) for r in c.fetchall()]
+
+    result = []
+    for u in users:
+        etu_id = u["id"]
+
+        # Score moyen
+        c.execute("""
+            SELECT AVG(score / score_max * 20) as moy
+            FROM quiz_results WHERE etudiant_id = ? AND score_max > 0
+        """, (etu_id,))
+        row_score = c.fetchone()
+        score_moy = round(row_score["moy"], 1) if row_score and row_score["moy"] else 0.0
+
+        # Modules débloqués (hors libres)
+        c.execute("""
+            SELECT COUNT(*) as nb FROM module_access
+            WHERE etudiant_id = ? AND debloque = 1 AND module_key NOT IN ({})
+        """.format(",".join("?" * len(MODULES_LIBRES))), (etu_id, *MODULES_LIBRES))
+        nb_debloques = c.fetchone()["nb"]
+
+        # Progression globale
+        c.execute("""
+            SELECT AVG(pct_complete) as pct FROM progression WHERE etudiant_id = ?
+        """, (etu_id,))
+        row_prog = c.fetchone()
+        prog = round(row_prog["pct"], 0) if row_prog and row_prog["pct"] else 0.0
+
+        result.append({
+            "id":               etu_id,
+            "email":            u["email"],
+            "prenom":           u["prenom"],
+            "nom":              u["nom"],
+            "formation":        u.get("formation") or "N/A",
+            "universite":       u.get("universite") or "N/A",
+            "last_login":       u.get("last_login"),
+            "score_moyen":      score_moy,
+            "modules_debloques": nb_debloques,
+            "progression":      prog,
+            # Colonnes affichage tableau
+            "ID":               etu_id,
+            "Étudiant":         f"{u['prenom']} {u['nom']}",
+            "Formation":        u.get("formation") or "N/A",
+            "Score moyen":      score_moy,
+            "Progression":      f"{prog:.0f}%",
+            "Dernière connexion": (u.get("last_login") or "Jamais")[:16],
+        })
+
+    conn.close()
+    return result
+
 
 # ─────────────────────────────────────────────────────────────
-# STOCKAGE EN MÉMOIRE POUR LE MODE DÉMO
-# (remplace la base SQLite pour les fonctions interactives)
+# ACCÈS AUX MODULES  ← persisté en SQLite
 # ─────────────────────────────────────────────────────────────
-_module_access_store: dict = {}   # {etudiant_id: {module: bool}}
-_quiz_results_store: list  = []   # liste de dicts résultats
-_notifications_store: list = []   # liste de dicts notifications
-_next_result_id: list      = [1]  # compteur auto-incrémenté
 
+def get_module_access(etudiant_id: int) -> dict:
+    """
+    Retourne {module_key: bool} pour un étudiant.
+    Les modules libres sont toujours True.
+    """
+    conn = get_connection()
+    c = conn.cursor()
 
-def _default_access(etudiant_id) -> dict:
-    """Retourne les accès par défaut pour un étudiant."""
-    access = {}
+    # S'assure que toutes les lignes existent
     for mod in MODULES:
-        access[mod] = (mod in MODULES_LIBRES)
+        debloque = 1 if mod in MODULES_LIBRES else 0
+        c.execute("""
+            INSERT OR IGNORE INTO module_access (etudiant_id, module_key, debloque)
+            VALUES (?, ?, ?)
+        """, (etudiant_id, mod, debloque))
+    conn.commit()
+
+    c.execute("SELECT module_key, debloque FROM module_access WHERE etudiant_id = ?",
+              (etudiant_id,))
+    rows = c.fetchall()
+    conn.close()
+
+    access = {}
+    for r in rows:
+        access[r["module_key"]] = bool(r["debloque"])
+    # Forcer les modules libres
+    for mod in MODULES_LIBRES:
+        access[mod] = True
     return access
 
 
-def get_module_access(etudiant_id) -> dict:
-    """Retourne les permissions d'accès aux modules pour un étudiant."""
-    etudiant_id = str(etudiant_id)
-    if etudiant_id not in _module_access_store:
-        _module_access_store[etudiant_id] = _default_access(etudiant_id)
-    return _module_access_store[etudiant_id]
+def set_module_access(etudiant_id: int, module_key: str, debloque: bool,
+                      prof_id: int = None):
+    """Modifie l'accès d'un étudiant à un module (persisté en SQLite)."""
+    now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    conn = get_connection()
+    c = conn.cursor()
+    c.execute("""
+        INSERT INTO module_access (etudiant_id, module_key, debloque, debloque_par, debloque_le)
+        VALUES (?, ?, ?, ?, ?)
+        ON CONFLICT(etudiant_id, module_key)
+        DO UPDATE SET debloque=excluded.debloque,
+                      debloque_par=excluded.debloque_par,
+                      debloque_le=excluded.debloque_le
+    """, (etudiant_id, module_key, int(debloque), prof_id, now))
+    conn.commit()
+    conn.close()
 
 
-def set_module_access(etudiant_id, module_key: str, debloque: bool, prof_id=None):
-    """Modifie l'accès d'un étudiant à un module."""
-    etudiant_id = str(etudiant_id)
-    if etudiant_id not in _module_access_store:
-        _module_access_store[etudiant_id] = _default_access(etudiant_id)
-    _module_access_store[etudiant_id][module_key] = debloque
-
-
-def set_all_modules_access(etudiant_id, debloque: bool, prof_id=None):
-    """Bloque ou débloque tous les modules pour un étudiant."""
-    etudiant_id = str(etudiant_id)
-    access = {}
+def set_all_modules_access(etudiant_id: int, debloque: bool, prof_id: int = None):
+    """Bloque ou débloque tous les modules pour un étudiant (persisté)."""
     for mod in MODULES:
-        # Les modules libres restent toujours accessibles
-        access[mod] = True if mod in MODULES_LIBRES else debloque
-    _module_access_store[etudiant_id] = access
+        val = True if mod in MODULES_LIBRES else debloque
+        set_module_access(etudiant_id, mod, val, prof_id)
 
 
 # ─────────────────────────────────────────────────────────────
-# PROGRESSION (MOCKÉE)
+# PROGRESSION
 # ─────────────────────────────────────────────────────────────
 
-def get_progression_etudiant(etudiant_id) -> dict:
+def get_progression_etudiant(etudiant_id: int) -> dict:
     """Retourne la progression par module pour un étudiant."""
-    from utils.auth import COMPTES_DEMO
-    etudiant_id = str(etudiant_id)
+    conn = get_connection()
+    c = conn.cursor()
+    c.execute("SELECT * FROM progression WHERE etudiant_id = ?", (etudiant_id,))
+    rows = c.fetchall()
+    conn.close()
 
-    compte = None
-    for infos in COMPTES_DEMO.values():
-        if str(infos.get("numero_etudiant")) == etudiant_id:
-            compte = infos
-            break
-
-    modules_completes = compte.get("modules_completes", []) if compte else []
-    progression_globale = compte.get("progression", 0) if compte else 0
-
-    result = {}
-    for mod in MODULES:
-        if mod in modules_completes:
-            pct = 100.0
-        elif mod in MODULES_LIBRES:
-            pct = float(progression_globale) if progression_globale else 0.0
-        else:
-            pct = 0.0
-        result[mod] = {
-            "pct_complete":     pct,
-            "nb_visites":       3 if mod in modules_completes else 0,
-            "temps_passe":      1800 if mod in modules_completes else 0,
-            "derniere_visite":  datetime.now().strftime("%Y-%m-%d %H:%M") if mod in modules_completes else None,
+    result = {mod: {"pct_complete": 0.0, "nb_visites": 0,
+                    "temps_passe": 0, "derniere_visite": None}
+              for mod in MODULES}
+    for r in rows:
+        result[r["module_key"]] = {
+            "pct_complete":     r["pct_complete"],
+            "nb_visites":       r["nb_visites"],
+            "temps_passe":      r["temps_passe"],
+            "derniere_visite":  r["derniere_visite"],
         }
     return result
 
 
-def get_progression_globale(etudiant_id) -> float:
-    """Retourne le pourcentage de progression globale d'un étudiant."""
-    from utils.auth import COMPTES_DEMO
-    etudiant_id = str(etudiant_id)
+def get_progression_globale(etudiant_id: int) -> float:
+    """Retourne le % de progression globale d'un étudiant."""
+    conn = get_connection()
+    c = conn.cursor()
+    c.execute("SELECT AVG(pct_complete) as pct FROM progression WHERE etudiant_id = ?",
+              (etudiant_id,))
+    row = c.fetchone()
+    conn.close()
+    return round(row["pct"], 1) if row and row["pct"] else 0.0
 
-    for infos in COMPTES_DEMO.values():
-        if str(infos.get("numero_etudiant")) == etudiant_id:
-            return float(infos.get("progression", 0))
-    return 0.0
+
+def update_progression(etudiant_id: int, module_key: str,
+                       pct_complete: float, temps_passe: int = 0):
+    """Met à jour la progression d'un étudiant sur un module."""
+    now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    conn = get_connection()
+    c = conn.cursor()
+    c.execute("""
+        INSERT INTO progression (etudiant_id, module_key, pct_complete, nb_visites,
+                                 temps_passe, derniere_visite)
+        VALUES (?, ?, ?, 1, ?, ?)
+        ON CONFLICT(etudiant_id, module_key)
+        DO UPDATE SET pct_complete    = MAX(pct_complete, excluded.pct_complete),
+                      nb_visites      = nb_visites + 1,
+                      temps_passe     = temps_passe + excluded.temps_passe,
+                      derniere_visite = excluded.derniere_visite
+    """, (etudiant_id, module_key, pct_complete, temps_passe, now))
+    conn.commit()
+    conn.close()
 
 
 # ─────────────────────────────────────────────────────────────
-# QUIZ RESULTS (MOCKÉS)
+# QUIZ RESULTS
 # ─────────────────────────────────────────────────────────────
-
-def _seed_quiz_results():
-    """Insère des résultats de quiz démo si le store est vide."""
-    if _quiz_results_store:
-        return
-    demo_results = [
-        {
-            "id":           1,
-            "etudiant_id":  "20240001",
-            "prenom":       "Alex",
-            "nom":          "Dupont",
-            "module_key":   "actions",
-            "score":        14.0,
-            "score_max":    20.0,
-            "nb_questions": 10,
-            "nb_correctes": 7,
-            "theme":        "Marchés boursiers",
-            "note_prof":    None,
-            "commentaire":  None,
-            "passe_le":     "2025-03-12 10:30",
-        },
-        {
-            "id":           2,
-            "etudiant_id":  "20240001",
-            "prenom":       "Alex",
-            "nom":          "Dupont",
-            "module_key":   "obligations",
-            "score":        15.0,
-            "score_max":    20.0,
-            "nb_questions": 10,
-            "nb_correctes": 8,
-            "theme":        "Taux d'intérêt",
-            "note_prof":    None,
-            "commentaire":  None,
-            "passe_le":     "2025-03-18 14:15",
-        },
-    ]
-    _quiz_results_store.extend(demo_results)
-    _next_result_id[0] = 3
-
 
 def get_quiz_results_all() -> list:
-    """Retourne tous les résultats de quiz (tous étudiants confondus)."""
-    _seed_quiz_results()
-    return list(_quiz_results_store)
+    """Retourne tous les résultats de quiz avec infos étudiant."""
+    conn = get_connection()
+    c = conn.cursor()
+    c.execute("""
+        SELECT qr.*, u.prenom, u.nom
+        FROM quiz_results qr
+        JOIN users u ON u.id = qr.etudiant_id
+        ORDER BY qr.passe_le DESC
+    """)
+    rows = [dict(r) for r in c.fetchall()]
+    conn.close()
+    return rows
 
 
-def get_quiz_results_etudiant(etudiant_id) -> list:
-    """Retourne les résultats de quiz d'un étudiant spécifique."""
-    _seed_quiz_results()
-    return [r for r in _quiz_results_store
-            if str(r["etudiant_id"]) == str(etudiant_id)]
+def get_quiz_results_etudiant(etudiant_id: int) -> list:
+    """Retourne les résultats de quiz d'un étudiant."""
+    conn = get_connection()
+    c = conn.cursor()
+    c.execute("""
+        SELECT qr.*, u.prenom, u.nom
+        FROM quiz_results qr
+        JOIN users u ON u.id = qr.etudiant_id
+        WHERE qr.etudiant_id = ?
+        ORDER BY qr.passe_le DESC
+    """, (etudiant_id,))
+    rows = [dict(r) for r in c.fetchall()]
+    conn.close()
+    return rows
 
 
-def add_quiz_result(etudiant_id, module_key: str, score: float,
+def add_quiz_result(etudiant_id: int, module_key: str, score: float,
                     score_max: float, nb_questions: int = 0,
                     nb_correctes: int = 0, theme: str = "") -> int:
-    """Enregistre un nouveau résultat de quiz."""
-    _seed_quiz_results()
-    from utils.auth import COMPTES_DEMO
-    prenom, nom = "", ""
-    for infos in COMPTES_DEMO.values():
-        if str(infos.get("numero_etudiant")) == str(etudiant_id):
-            prenom = infos.get("prenom", "")
-            nom    = infos.get("nom", "")
-            break
-
-    result_id = _next_result_id[0]
-    _next_result_id[0] += 1
-    _quiz_results_store.append({
-        "id":           result_id,
-        "etudiant_id":  str(etudiant_id),
-        "prenom":       prenom,
-        "nom":          nom,
-        "module_key":   module_key,
-        "score":        score,
-        "score_max":    score_max,
-        "nb_questions": nb_questions,
-        "nb_correctes": nb_correctes,
-        "theme":        theme,
-        "note_prof":    None,
-        "commentaire":  None,
-        "passe_le":     datetime.now().strftime("%Y-%m-%d %H:%M"),
-    })
+    """Enregistre un résultat de quiz."""
+    conn = get_connection()
+    c = conn.cursor()
+    c.execute("""
+        INSERT INTO quiz_results
+        (etudiant_id, module_key, score, score_max, nb_questions, nb_correctes, theme)
+        VALUES (?, ?, ?, ?, ?, ?, ?)
+    """, (etudiant_id, module_key, score, score_max, nb_questions, nb_correctes, theme))
+    result_id = c.lastrowid
+    conn.commit()
+    conn.close()
     return result_id
 
 
 def add_note_prof(result_id: int, note: float, commentaire: str = ""):
     """Attribue une note professeur à un résultat de quiz."""
-    _seed_quiz_results()
-    for r in _quiz_results_store:
-        if r["id"] == result_id:
-            r["note_prof"]   = note
-            r["commentaire"] = commentaire
-            break
+    conn = get_connection()
+    c = conn.cursor()
+    c.execute("""
+        UPDATE quiz_results SET note_prof=?, commentaire=? WHERE id=?
+    """, (note, commentaire, result_id))
+    conn.commit()
+    conn.close()
 
 
 # ─────────────────────────────────────────────────────────────
-# NOTIFICATIONS (MOCKÉES)
+# NOTIFICATIONS  ← persistées en SQLite, visibles côté étudiant
 # ─────────────────────────────────────────────────────────────
 
-def send_notification(expediteur_id, message: str, destinataire_id=None):
+def send_notification(expediteur_id: int, message: str,
+                      destinataire_id: int = None, expediteur_nom: str = "Professeur"):
     """
-    Enregistre une notification.
-    destinataire_id=None → envoi à tous les étudiants.
+    Envoie une notification.
+    destinataire_id=None → envoi à TOUS les étudiants.
     """
-    from utils.auth import COMPTES_DEMO
-    now = datetime.now().strftime("%Y-%m-%d %H:%M")
+    conn = get_connection()
+    c = conn.cursor()
+    now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
     if destinataire_id is None:
-        # Diffusion à tous
-        for infos in COMPTES_DEMO.values():
-            if infos.get("role") == "etudiant":
-                _notifications_store.append({
-                    "destinataire_id": infos.get("numero_etudiant"),
-                    "expediteur_id":   str(expediteur_id),
-                    "expediteur":      "Professeur",
-                    "message":         message,
-                    "lu":              False,
-                    "cree_le":         now,
-                })
+        # Récupère tous les étudiants actifs
+        c.execute("SELECT id FROM users WHERE role='etudiant' AND actif=1")
+        dest_ids = [r["id"] for r in c.fetchall()]
     else:
-        _notifications_store.append({
-            "destinataire_id": str(destinataire_id),
-            "expediteur_id":   str(expediteur_id),
-            "expediteur":      "Professeur",
-            "message":         message,
-            "lu":              False,
-            "cree_le":         now,
-        })
+        dest_ids = [destinataire_id]
+
+    for dest_id in dest_ids:
+        c.execute("""
+            INSERT INTO notifications
+            (destinataire_id, expediteur_id, expediteur_nom, message, cree_le)
+            VALUES (?, ?, ?, ?, ?)
+        """, (dest_id, expediteur_id, expediteur_nom, message, now))
+
+    conn.commit()
+    conn.close()
 
 
-def get_notifications(user_id) -> list:
-    """Retourne les notifications non lues d'un utilisateur."""
-    return [n for n in _notifications_store
-            if str(n.get("destinataire_id")) == str(user_id) and not n["lu"]]
+def get_notifications(user_id: int, non_lues_seulement: bool = False) -> list:
+    """Retourne les notifications d'un utilisateur (les plus récentes en premier)."""
+    conn = get_connection()
+    c = conn.cursor()
+    query = """
+        SELECT * FROM notifications
+        WHERE destinataire_id = ?
+        {}
+        ORDER BY cree_le DESC
+        LIMIT 50
+    """.format("AND lu = 0" if non_lues_seulement else "")
+    c.execute(query, (user_id,))
+    rows = [dict(r) for r in c.fetchall()]
+    conn.close()
+    return rows
+
+
+def marquer_notification_lue(notif_id: int):
+    """Marque une notification comme lue."""
+    conn = get_connection()
+    c = conn.cursor()
+    c.execute("UPDATE notifications SET lu=1 WHERE id=?", (notif_id,))
+    conn.commit()
+    conn.close()
+
+
+def marquer_toutes_lues(user_id: int):
+    """Marque toutes les notifications d'un utilisateur comme lues."""
+    conn = get_connection()
+    c = conn.cursor()
+    c.execute("UPDATE notifications SET lu=1 WHERE destinataire_id=?", (user_id,))
+    conn.commit()
+    conn.close()
+
+
+def count_notifications_non_lues(user_id: int) -> int:
+    """Retourne le nombre de notifications non lues."""
+    conn = get_connection()
+    c = conn.cursor()
+    c.execute("SELECT COUNT(*) as nb FROM notifications WHERE destinataire_id=? AND lu=0",
+              (user_id,))
+    row = c.fetchone()
+    conn.close()
+    return row["nb"] if row else 0
