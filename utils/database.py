@@ -268,19 +268,233 @@ def get_all_etudiants():
 # FONCTIONS ACCÈS MODULES (MOCKÉES)
 # ─────────────────────────────────────────────────────────────
 
-def get_module_access(etudiant_id):
-    """Simule les permissions d'accès aux modules pour un étudiant (Mock/Démo)."""
+
+# ─────────────────────────────────────────────────────────────
+# STOCKAGE EN MÉMOIRE POUR LE MODE DÉMO
+# (remplace la base SQLite pour les fonctions interactives)
+# ─────────────────────────────────────────────────────────────
+_module_access_store: dict = {}   # {etudiant_id: {module: bool}}
+_quiz_results_store: list  = []   # liste de dicts résultats
+_notifications_store: list = []   # liste de dicts notifications
+_next_result_id: list      = [1]  # compteur auto-incrémenté
+
+
+def _default_access(etudiant_id) -> dict:
+    """Retourne les accès par défaut pour un étudiant."""
+    access = {}
+    for mod in MODULES:
+        access[mod] = (mod in MODULES_LIBRES)
+    return access
+
+
+def get_module_access(etudiant_id) -> dict:
+    """Retourne les permissions d'accès aux modules pour un étudiant."""
+    etudiant_id = str(etudiant_id)
+    if etudiant_id not in _module_access_store:
+        _module_access_store[etudiant_id] = _default_access(etudiant_id)
+    return _module_access_store[etudiant_id]
+
+
+def set_module_access(etudiant_id, module_key: str, debloque: bool, prof_id=None):
+    """Modifie l'accès d'un étudiant à un module."""
+    etudiant_id = str(etudiant_id)
+    if etudiant_id not in _module_access_store:
+        _module_access_store[etudiant_id] = _default_access(etudiant_id)
+    _module_access_store[etudiant_id][module_key] = debloque
+
+
+def set_all_modules_access(etudiant_id, debloque: bool, prof_id=None):
+    """Bloque ou débloque tous les modules pour un étudiant."""
+    etudiant_id = str(etudiant_id)
+    access = {}
+    for mod in MODULES:
+        # Les modules libres restent toujours accessibles
+        access[mod] = True if mod in MODULES_LIBRES else debloque
+    _module_access_store[etudiant_id] = access
+
+
+# ─────────────────────────────────────────────────────────────
+# PROGRESSION (MOCKÉE)
+# ─────────────────────────────────────────────────────────────
+
+def get_progression_etudiant(etudiant_id) -> dict:
+    """Retourne la progression par module pour un étudiant."""
     from utils.auth import COMPTES_DEMO
-    
+    etudiant_id = str(etudiant_id)
+
     compte = None
-    for c in COMPTES_DEMO.values():
-        if c.get("numero_etudiant") == str(etudiant_id):
-            compte = c
+    for infos in COMPTES_DEMO.values():
+        if str(infos.get("numero_etudiant")) == etudiant_id:
+            compte = infos
             break
-            
-    if not compte or compte.get("role") == "professeur":
-        return {mod: 1 for mod in ["actions", "obligations", "derives", "fonds", "forex", "monetaire"]}
-        
-    access_dict = {}
-    for mod in ["actions", "obligations", "derives", "fonds", "forex", "monetaire"]:
-        access_dict[mod] = 1
+
+    modules_completes = compte.get("modules_completes", []) if compte else []
+    progression_globale = compte.get("progression", 0) if compte else 0
+
+    result = {}
+    for mod in MODULES:
+        if mod in modules_completes:
+            pct = 100.0
+        elif mod in MODULES_LIBRES:
+            pct = float(progression_globale) if progression_globale else 0.0
+        else:
+            pct = 0.0
+        result[mod] = {
+            "pct_complete":     pct,
+            "nb_visites":       3 if mod in modules_completes else 0,
+            "temps_passe":      1800 if mod in modules_completes else 0,
+            "derniere_visite":  datetime.now().strftime("%Y-%m-%d %H:%M") if mod in modules_completes else None,
+        }
+    return result
+
+
+def get_progression_globale(etudiant_id) -> float:
+    """Retourne le pourcentage de progression globale d'un étudiant."""
+    from utils.auth import COMPTES_DEMO
+    etudiant_id = str(etudiant_id)
+
+    for infos in COMPTES_DEMO.values():
+        if str(infos.get("numero_etudiant")) == etudiant_id:
+            return float(infos.get("progression", 0))
+    return 0.0
+
+
+# ─────────────────────────────────────────────────────────────
+# QUIZ RESULTS (MOCKÉS)
+# ─────────────────────────────────────────────────────────────
+
+def _seed_quiz_results():
+    """Insère des résultats de quiz démo si le store est vide."""
+    if _quiz_results_store:
+        return
+    demo_results = [
+        {
+            "id":           1,
+            "etudiant_id":  "20240001",
+            "prenom":       "Alex",
+            "nom":          "Dupont",
+            "module_key":   "actions",
+            "score":        14.0,
+            "score_max":    20.0,
+            "nb_questions": 10,
+            "nb_correctes": 7,
+            "theme":        "Marchés boursiers",
+            "note_prof":    None,
+            "commentaire":  None,
+            "passe_le":     "2025-03-12 10:30",
+        },
+        {
+            "id":           2,
+            "etudiant_id":  "20240001",
+            "prenom":       "Alex",
+            "nom":          "Dupont",
+            "module_key":   "obligations",
+            "score":        15.0,
+            "score_max":    20.0,
+            "nb_questions": 10,
+            "nb_correctes": 8,
+            "theme":        "Taux d'intérêt",
+            "note_prof":    None,
+            "commentaire":  None,
+            "passe_le":     "2025-03-18 14:15",
+        },
+    ]
+    _quiz_results_store.extend(demo_results)
+    _next_result_id[0] = 3
+
+
+def get_quiz_results_all() -> list:
+    """Retourne tous les résultats de quiz (tous étudiants confondus)."""
+    _seed_quiz_results()
+    return list(_quiz_results_store)
+
+
+def get_quiz_results_etudiant(etudiant_id) -> list:
+    """Retourne les résultats de quiz d'un étudiant spécifique."""
+    _seed_quiz_results()
+    return [r for r in _quiz_results_store
+            if str(r["etudiant_id"]) == str(etudiant_id)]
+
+
+def add_quiz_result(etudiant_id, module_key: str, score: float,
+                    score_max: float, nb_questions: int = 0,
+                    nb_correctes: int = 0, theme: str = "") -> int:
+    """Enregistre un nouveau résultat de quiz."""
+    _seed_quiz_results()
+    from utils.auth import COMPTES_DEMO
+    prenom, nom = "", ""
+    for infos in COMPTES_DEMO.values():
+        if str(infos.get("numero_etudiant")) == str(etudiant_id):
+            prenom = infos.get("prenom", "")
+            nom    = infos.get("nom", "")
+            break
+
+    result_id = _next_result_id[0]
+    _next_result_id[0] += 1
+    _quiz_results_store.append({
+        "id":           result_id,
+        "etudiant_id":  str(etudiant_id),
+        "prenom":       prenom,
+        "nom":          nom,
+        "module_key":   module_key,
+        "score":        score,
+        "score_max":    score_max,
+        "nb_questions": nb_questions,
+        "nb_correctes": nb_correctes,
+        "theme":        theme,
+        "note_prof":    None,
+        "commentaire":  None,
+        "passe_le":     datetime.now().strftime("%Y-%m-%d %H:%M"),
+    })
+    return result_id
+
+
+def add_note_prof(result_id: int, note: float, commentaire: str = ""):
+    """Attribue une note professeur à un résultat de quiz."""
+    _seed_quiz_results()
+    for r in _quiz_results_store:
+        if r["id"] == result_id:
+            r["note_prof"]   = note
+            r["commentaire"] = commentaire
+            break
+
+
+# ─────────────────────────────────────────────────────────────
+# NOTIFICATIONS (MOCKÉES)
+# ─────────────────────────────────────────────────────────────
+
+def send_notification(expediteur_id, message: str, destinataire_id=None):
+    """
+    Enregistre une notification.
+    destinataire_id=None → envoi à tous les étudiants.
+    """
+    from utils.auth import COMPTES_DEMO
+    now = datetime.now().strftime("%Y-%m-%d %H:%M")
+
+    if destinataire_id is None:
+        # Diffusion à tous
+        for infos in COMPTES_DEMO.values():
+            if infos.get("role") == "etudiant":
+                _notifications_store.append({
+                    "destinataire_id": infos.get("numero_etudiant"),
+                    "expediteur_id":   str(expediteur_id),
+                    "expediteur":      "Professeur",
+                    "message":         message,
+                    "lu":              False,
+                    "cree_le":         now,
+                })
+    else:
+        _notifications_store.append({
+            "destinataire_id": str(destinataire_id),
+            "expediteur_id":   str(expediteur_id),
+            "expediteur":      "Professeur",
+            "message":         message,
+            "lu":              False,
+            "cree_le":         now,
+        })
+
+
+def get_notifications(user_id) -> list:
+    """Retourne les notifications non lues d'un utilisateur."""
+    return [n for n in _notifications_store
+            if str(n.get("destinataire_id")) == str(user_id) and not n["lu"]]
