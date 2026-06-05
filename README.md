@@ -1,4 +1,4 @@
-# 📈 FinLearn — Plateforme Académique des Instruments Financiers
+# 📈 Finétu — Plateforme Académique des Instruments Financiers
 
 [![Streamlit App](https://static.streamlit.io/badges/streamlit_badge_black_white.svg)](https://share.streamlit.io)
 [![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org)
